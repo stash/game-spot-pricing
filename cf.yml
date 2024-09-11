@@ -1,120 +1,183 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Factorio Spot Price Server via Docker / ECS
+Description: Game Spot Price Server via Docker / ECS
 Parameters:
 
   ECSAMI:
-    Description: AWS ECS AMI ID
+    Description: "AWS ECS AMI ID - Default is for x86-64 (not arm64). See https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html"
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id
 
-  FactorioImageTag:
+  MemoryReservationECS:
+    Type: Number
+    Description: "The memoryReservation parameter for the ECS Task in MiB"
+    Default: 8192
+
+  GameImage:
     Type: String
-    Description: "(Examples include latest, stable, 0.17, 0.17.33) Refer to tag descriptions available here: https://hub.docker.com/r/factoriotools/factorio/)"
-    Default: latest
+    Description: "Docker Hub Image Name"
+    Default: "wolveix/satisfactory-server"
+
+  GameImageTag:
+    Type: String
+    Description: "Docker Image Tag, e.g., latest - see https://hub.docker.com/r/wolveix/satisfactory-server/tags"
+    Default: "latest"
 
   ServerState:
     Type: String
-    Description: "Running: A spot instance will launch shortly after setting this parameter; your Factorio server should start within 5-10 minutes of changing this parameter (once UPDATE_IN_PROGRESS becomes UPDATE_COMPLETE). Stopped: Your spot instance (and thus Factorio container) will be terminated shortly after setting this parameter."
+    Description: "Running: A spot instance will launch shortly after setting this parameter; your Game server should start within 5-10 minutes of changing this parameter (once UPDATE_IN_PROGRESS becomes UPDATE_COMPLETE). Stopped: Your spot instance (and thus Game container) will be terminated shortly after setting this parameter."
     Default: Running
-    AllowedValues: 
+    AllowedValues:
     - Running
     - Stopped
 
   InstanceType:
     Type: String
-    Description: "m3.medium is a good cost effective (albeit older) instance, 1 VCPU and 3.75 GB of RAM with moderate network performance. Change at your discretion. https://aws.amazon.com/ec2/instance-types/."
-    Default: m3.medium
+    Description: "Instance type change at your discretion, will have a direct impact on cost -- see https://aws.amazon.com/ec2/instance-types/ ."
+    Default: t3.xlarge
 
   SpotPrice:
     Type: String
-    Description: "An m3.medium shouldn't cost more than a cent per hour. Note: Leave this blank to use on-demand pricing."
-    Default: "0.05"
+    Description: "Maximum spot pricing. Will not launch if current price exceeds this. Check pricing history via https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances-history.html -- NOTE: Leave this blank to use on-demand pricing."
+    Default: "0.08"
 
   KeyPairName:
     Type: String
-    Description: (Optional - An empty value disables this feature)
+    Description: "SSH key name (Optional - An empty value disables this feature)"
     Default: ''
 
-  YourIp:
+  YourIPv4:
     Type: String
-    Description: (Optional - An empty value disables this feature)
+    Description: "(Optional - An empty value disables this feature) Restrict SSH to this address"
     Default: ''
+
+  YourIPv6:
+    Type: String
+    Description: "(Optional - An empty value disables this feature) Restrict SSH to this address"
+    Default: ''
+
+  ServerPort:
+    Type: Number
+    Description: "Listen TCP/UDP Port on Internet"
+    Default: 7777
+
+  ContainerPort:
+    Type: Number
+    Description: "Listen TCP/UDP Port within the Container"
+    Default: 7777
+
+  VpcCidrBlock:
+    Type: String
+    Description: "VPC Address Range, CIDR notation (/26 recommended, VPC subnets will be /28 regardless)"
+    Default: "10.100.1.0/26"
+
+  VolumeMountPoint:
+    Type: String
+    Description: "Path to mount the Efs Volume"
+    Default: "/config"
+
+  MaxPlayers:
+    Type: Number
+    Description: "Number of players. May affect CPU/RAM needs."
+    Default: 8
+
+  PUserId:
+    Type: String
+    Description: (Optional - empty does not override) PUID - Override Linux user ID
+    Value: ''
+
+  PGroupId:
+    Type: String
+    Description: (Optional - empty does not override) PGID - Override Linux group ID
+    Value: ''
 
   HostedZoneId:
     Type: String
-    Description: (Optional - An empty value disables this feature) If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Factorio instance starts, supply the hosted zone ID here.
+    Description: (Optional - An empty value disables this feature) If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Game instance starts, supply the hosted zone ID here (long alphanumeric string).
     Default: ''
 
   RecordName:
     Type: String
-    Description: (Optional - An empty value disables this feature) If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Factorio instance starts, supply the name of the record here (e.g. factorio.mydomain.com).
+    Description: (Optional - An empty value disables this feature) If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Game instance starts, supply the name of the full record here (e.g. gameygame.example.com).
     Default: ''
-
-  EnableRcon:
-    Type: String
-    Description: Refer to https://hub.docker.com/r/factoriotools/factorio/ for further RCON configuration details. This parameter simply opens / closes the port on the security group.
-    Default: false
-    AllowedValues:
-    - true
-    - false
-
-  UpdateModsOnStart:
-    Type: String
-    Description: Refer to https://hub.docker.com/r/factoriotools/factorio/ for further configuration details.
-    Default: false
-    AllowedValues:
-    - true
-    - false
 
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
-      - Label: 
+      - Label:
           default: Essential Configuration
         Parameters:
-        - FactorioImageTag
+        - GameImage
+        - GameImageTag
         - ServerState
         - InstanceType
         - SpotPrice
-        - EnableRcon
-        - UpdateModsOnStart
-      - Label: 
+        - ServerPort
+      - Label:
+          default: Other Server Settings
+        Parameters:
+        - MaxPlayers
+      - Label:
           default: Remote Access (SSH) Configuration (Optional)
         Parameters:
         - KeyPairName
-        - YourIp
-      - Label: 
-          default: DNS Configuration (Optional)
+        - YourIPv4
+        - YourIPv6
+      - Label:
+          default: Optional DNS Configuration
         Parameters:
         - HostedZoneId
         - RecordName
+      - Label:
+          default: Nerdy Details
+        Parameters:
+        - ECSAMI
+        - PUserId
+        - PGroupId
+        - ContainerPort
+        - VolumeMountPoint
+        - MemoryReservationECS
+        - VpcCidrBlock
     ParameterLabels:
-      FactorioImageTag:
-        default: "Which version of Factorio do you want to launch?"
+      GameImage:
+        default: "Which docker hub container are you using?"
+      GameImageTag:
+        default: "Which version of the Game image do you want to launch?"
       ServerState:
-        default: "Update this parameter to shut down / start up your Factorio server as required to save on cost. Takes a few minutes to take effect."
+        default: "Update this parameter to shut down / start up your Game server as required to save on cost. Takes a few minutes to take effect (ASG target)."
       InstanceType:
         default: "Which instance type? You must make sure this is available in your region! https://aws.amazon.com/ec2/pricing/on-demand/"
       SpotPrice:
         default: "Maximum spot price per hour? Leave blank to disable spot pricing."
       KeyPairName:
         default: "If you wish to access the instance via SSH, select a Key Pair to use. https://console.aws.amazon.com/ec2/v2/home?#KeyPairs:sort=keyName"
-      YourIp:
-        default: "If you wish to access the instance via SSH, provide your public IP address."
+      YourIPv4:
+        default: "If you wish to access the instance via SSH, provide your public IP v4 address."
+      YourIPv6:
+        default: "If you wish to access the instance via SSH, provide your public IP v6 address."
       HostedZoneId:
-        default: "If you have a hosted zone in Route 53 and wish to update a DNS record whenever your Factorio instance starts, supply the hosted zone ID here."
+        default: "If you have a hosted zone in Route 53 and wish to update a DNS record whenever your Game instance starts, supply the hosted zone ID here (not the domain; the ID)."
       RecordName:
-        default: "If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Factorio instance starts, supply a record name here (e.g. factorio.mydomain.com)."
-      EnableRcon:
-        default: "Do you wish to enable RCON?"
-      UpdateModsOnStart:
-        default: "Do you wish to update your mods on container start"
+        default: "If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Game instance starts, supply a record name here (e.g. gameygame.mydomain.com)."
+      ECSAMI:
+        default: "ECS AMI Name"
+      PUserId:
+        default: "Set the PUID env var if needed, e.g., 1000"
+      PGroupId:
+        default: "Set the PGID env var if needed, e.g., 1000"
+      ContainerPort:
+        default: "Set internal port used by the daemon in the container"
+      MemoryReservationECS:
+        default: "Minimum required memory for the container (check wiki/etc. recommendations)"
+      VpcCidrBlock:
+        default: "IPv4 address range for the VPC; for sanity, don't overlap with other VPCs!"
 Conditions:
   KeyPairNameProvided: !Not [ !Equals [ !Ref KeyPairName, '' ] ]
-  IpAddressProvided: !Not [ !Equals [ !Ref YourIp, '' ] ]
+  IPv4AddressProvided: !Not [ !Equals [ !Ref YourIPv4, '' ] ]
+  IPv6AddressProvided: !Not [ !Equals [ !Ref YourIPv6, '' ] ]
+  PUserIdProvided: !Not [ !Equals [ !Ref PUserId, '' ] ]
+  PGroupIdProvided: !Not [ !Equals [ !Ref PGroupId, '' ] ]
   DnsConfigEnabled: !And [ !Not [ !Equals [ !Ref HostedZoneId, '' ] ], !Not [ !Equals [ !Ref RecordName, '' ] ] ]
   SpotPriceProvided: !Not [ !Equals [ !Ref SpotPrice, '' ] ]
-  DoEnableRcon: !Equals [ !Ref EnableRcon, 'true' ]
 
 Mappings:
   ServerState:
@@ -129,43 +192,45 @@ Resources:
   # BASIC VPC
   # ====================================================
 
-  Vpc: 
+  Vpc:
     Type: AWS::EC2::VPC
-    Properties: 
-      CidrBlock: 10.100.0.0/26
+    Properties:
+      CidrBlock: !Ref VpcCidrBlock
       EnableDnsSupport: true
       EnableDnsHostnames: true
 
   SubnetA:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: !Select 
-      - 0
-      - !GetAZs 
+      # 1 = the "b" zone, usually
+      AvailabilityZone: !Select
+      - 1
+      - !GetAZs
         Ref: 'AWS::Region'
-      CidrBlock: !Select [ 0, !Cidr [ 10.100.0.0/26, 4, 4 ] ]
-      VpcId: !Ref Vpc  
+      CidrBlock: !Select [ 0, !Cidr [ !Ref VpcCidrBlock, 4, 4 ] ]
+      VpcId: !Ref Vpc
 
   SubnetARoute:
     Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties: 
+    Properties:
       RouteTableId: !Ref RouteTable
       SubnetId: !Ref SubnetA
 
   SubnetBRoute:
     Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties: 
+    Properties:
       RouteTableId: !Ref RouteTable
-      SubnetId: !Ref SubnetB  
+      SubnetId: !Ref SubnetB
 
   SubnetB:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: !Select 
-      - 1
-      - !GetAZs 
+      # 2 = the "c" zone, usually
+      AvailabilityZone: !Select
+      - 2
+      - !GetAZs
         Ref: 'AWS::Region'
-      CidrBlock: !Select [ 1, !Cidr [ 10.100.0.0/26, 4, 4 ] ]
+      CidrBlock: !Select [ 1, !Cidr [ !Ref VpcCidrBlock, 4, 4 ] ]
       VpcId: !Ref Vpc
 
   InternetGateway:
@@ -174,18 +239,18 @@ Resources:
 
   InternetGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
-    Properties: 
+    Properties:
       InternetGatewayId: !Ref InternetGateway
       VpcId: !Ref Vpc
 
   RouteTable:
     Type: AWS::EC2::RouteTable
-    Properties: 
-      VpcId: !Ref Vpc    
+    Properties:
+      VpcId: !Ref Vpc
 
   Route:
     Type: AWS::EC2::Route
-    Properties: 
+    Properties:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
       RouteTableId: !Ref RouteTable
@@ -220,7 +285,7 @@ Resources:
 
   EfsSg:
     Type: AWS::EC2::SecurityGroup
-    Properties: 
+    Properties:
       GroupName: !Sub "${AWS::StackName}-efs"
       GroupDescription: !Sub "${AWS::StackName}-efs"
       SecurityGroupIngress:
@@ -229,35 +294,39 @@ Resources:
         IpProtocol: tcp
         SourceSecurityGroupId: !Ref Ec2Sg
       VpcId: !Ref Vpc
-      
+
   # ====================================================
   # INSTANCE CONFIG
   # ====================================================
 
   Ec2Sg:
     Type: AWS::EC2::SecurityGroup
-    Properties: 
+    Properties:
       GroupName: !Sub "${AWS::StackName}-ec2"
       GroupDescription: !Sub "${AWS::StackName}-ec2"
       SecurityGroupIngress:
       - !If
-        - IpAddressProvided 
+        - IPv4AddressProvided
         - FromPort: 22
           ToPort: 22
           IpProtocol: tcp
-          CidrIp: !Sub "${YourIp}/32"
+          CidrIp: !Sub "${YourIPv4}/32"
         - !Ref 'AWS::NoValue'
-      - FromPort: 34197
-        ToPort: 34197
+      - !If
+        - IPv6AddressProvided
+        - FromPort: 22
+          ToPort: 22
+          IpProtocol: tcp
+          CidrIpv6: !Sub "${YourIPv6}/128"
+        - !Ref 'AWS::NoValue'
+      - FromPort: !Ref ServerPort
+        ToPort: !Ref ServerPort
         IpProtocol: udp
         CidrIp: 0.0.0.0/0
-      - !If
-        - DoEnableRcon
-        - FromPort: 27015
-          ToPort: 27015
-          IpProtocol: tcp
-          CidrIp: 0.0.0.0/0
-        - !Ref 'AWS::NoValue'
+      - FromPort: !Ref ServerPort
+        ToPort: !Ref ServerPort
+        IpProtocol: tcp
+        CidrIp: 0.0.0.0/0
       VpcId: !Ref Vpc
 
   LaunchConfiguration:
@@ -267,7 +336,7 @@ Resources:
       IamInstanceProfile: !Ref InstanceProfile
       ImageId: !Ref ECSAMI
       InstanceType: !Ref InstanceType
-      KeyName: 
+      KeyName:
         !If [ KeyPairNameProvided, !Ref KeyPairName, !Ref 'AWS::NoValue' ]
       SecurityGroups:
       - !Ref Ec2Sg
@@ -275,7 +344,7 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash -xe
-          echo ECS_CLUSTER=${EcsCluster} >> /etc/ecs/ecs.config          
+          echo ECS_CLUSTER=${EcsCluster} >> /etc/ecs/ecs.config
 
   AutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -291,7 +360,7 @@ Resources:
 
   InstanceRole:
     Type: AWS::IAM::Role
-    Properties: 
+    Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -303,18 +372,10 @@ Resources:
           - sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
-      Policies:
-        - PolicyName: root
-          PolicyDocument: 
-            Version: "2012-10-17"
-            Statement: 
-              - Effect: "Allow"
-                Action: "route53:*"
-                Resource: "*"
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
-    Properties: 
+    Properties:
       Roles:
         - !Ref InstanceRole
 
@@ -325,11 +386,11 @@ Resources:
 
   EcsService:
     Type: AWS::ECS::Service
-    Properties: 
+    Properties:
       Cluster: !Ref EcsCluster
       DesiredCount: !FindInMap [ ServerState, !Ref ServerState, DesiredCapacity ]
       ServiceName: !Sub "${AWS::StackName}-ecs-service"
-      TaskDefinition: !Ref EcsTask  
+      TaskDefinition: !Ref EcsTask
       DeploymentConfiguration:
         MaximumPercent: 100
         MinimumHealthyPercent: 0
@@ -339,30 +400,44 @@ Resources:
     DependsOn:
     - MountA
     - MountB
-    Properties: 
+    Properties:
       Volumes:
-      - Name: factorio
+      - Name: gamedata
         EFSVolumeConfiguration:
           FilesystemId: !Ref Efs
           TransitEncryption: ENABLED
       ContainerDefinitions:
-        - Name: factorio
-          MemoryReservation: 1024
-          Image: !Sub "factoriotools/factorio:${FactorioImageTag}"
+        - Name: game
+          MemoryReservation: !Ref MemoryReservationECS
+          Image: !Sub "${GameImage}:${GameImageTag}"
           PortMappings:
-          - ContainerPort: 34197
-            HostPort: 34197
+          - ContainerPort: !Ref ContainerPort
+            HostPort: !Ref ServerPort
             Protocol: udp
-          - ContainerPort: 27015
-            HostPort: 27015
+          - ContainerPort: !Ref ContainerPort
+            HostPort: !Ref ServerPort
             Protocol: tcp
           MountPoints:
-          - ContainerPath: /factorio
-            SourceVolume: factorio
+          - ContainerPath: !Ref VolumeMountPoint
+            SourceVolume: gamedata
             ReadOnly: false
           Environment:
-          - Name: UPDATE_MODS_ON_START
-            Value: !Sub "${UpdateModsOnStart}"
+          - Name: MAXPLAYERS
+            Value: !Sub "${MaxPlayers}"
+      - Name: ROOTLESS
+        Value: false
+      - Name: STEAMBETA
+        Value: false
+      - !If
+        - PUserIdProvided
+        - Name: "PUID"
+          Value: !Sub "${PUserId}"
+        - !Ref 'AWS::NoValue'
+      - !If
+        - PGroupIdProvided
+        - Name: "PGID"
+          Value: !Sub "${PGroupId}"
+        - !Ref 'AWS::NoValue'
 
   # ====================================================
   # SET DNS RECORD
@@ -371,7 +446,7 @@ Resources:
   SetDNSRecordLambdaRole:
     Type: AWS::IAM::Role
     Condition: DnsConfigEnabled
-    Properties: 
+    Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -385,12 +460,12 @@ Resources:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
         - PolicyName: root
-          PolicyDocument: 
+          PolicyDocument:
             Version: "2012-10-17"
-            Statement: 
+            Statement:
               - Effect: "Allow"
-                Action: "route53:*"
-                Resource: "*"
+                Action: "route53:ChangeResourceRecordSets"
+                Resource: !Sub "arn:aws:route53:::hostedzone/${HostedZoneId}"
               - Effect: "Allow"
                 Action: "ec2:DescribeInstance*"
                 Resource: "*"
@@ -398,7 +473,7 @@ Resources:
   SetDNSRecordLambda:
     Type: "AWS::Lambda::Function"
     Condition: DnsConfigEnabled
-    Properties: 
+    Properties:
       Environment:
         Variables:
           HostedZoneId: !Ref HostedZoneId
@@ -429,7 +504,7 @@ Resources:
                       },
                   ]
               })
-      Description: Sets Route 53 DNS Record for Factorio
+      Description: Sets Route 53 DNS Record for Game
       FunctionName: !Sub "${AWS::StackName}-set-dns"
       Handler: index.handler
       MemorySize: 128
@@ -440,7 +515,7 @@ Resources:
   LaunchEvent:
     Type: AWS::Events::Rule
     Condition: DnsConfigEnabled
-    Properties: 
+    Properties:
       EventPattern:
         source:
         - aws.autoscaling
@@ -458,7 +533,7 @@ Resources:
   LaunchEventLambdaPermission:
     Type: AWS::Lambda::Permission
     Condition: DnsConfigEnabled
-    Properties: 
+    Properties:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt SetDNSRecordLambda.Arn
       Principal: events.amazonaws.com
@@ -466,5 +541,5 @@ Resources:
 
 Outputs:
   CheckInstanceIp:
-    Description: To find your Factorio instance IP address, visit the following link. Click on the instance to find its Public IP address.
+    Description: To find your Game instance IP address, visit the following link. Click on the instance to find its Public IP address.
     Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/ec2/v2/home?region=${AWS::Region}#Instances:tag:aws:autoscaling:groupName=${AutoScalingGroup};sort=tag:Name"
