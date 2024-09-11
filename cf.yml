@@ -9,8 +9,8 @@ Parameters:
 
   MemoryReservationECS:
     Type: Number
-    Description: "The memoryReservation parameter for the ECS Task in MiB"
-    Default: 8192
+    Description: "The MemoryReservation parameter for the ECS Task in MiB"
+    Default: 12288
 
   GameImage:
     Type: String
@@ -32,17 +32,17 @@ Parameters:
 
   InstanceType:
     Type: String
-    Description: "Instance type change at your discretion, will have a direct impact on cost -- see https://aws.amazon.com/ec2/instance-types/ ."
+    Description: "Instance type change at your discretion, will have a direct impact on cost -- see https://aws.amazon.com/ec2/instance-types/ . Graviton is not supported"
     Default: t3.xlarge
 
   SpotPrice:
     Type: String
-    Description: "Maximum spot pricing. Will not launch if current price exceeds this. Check pricing history via https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances-history.html -- NOTE: Leave this blank to use on-demand pricing."
+    Description: "Maximum spot pricing. Will not launch if current price exceeds this. Check pricing history via https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances-history.html -- NOTE: Leave this blank to use on-demand pricing. ($/hr)"
     Default: "0.08"
 
   KeyPairName:
     Type: String
-    Description: "SSH key name (Optional - An empty value disables this feature)"
+    Description: "(Optional - An empty value disables this feature) SSH Key name from https://console.aws.amazon.com/ec2/v2/home?#KeyPairs:sort=keyName"
     Default: ''
 
   YourIPv4:
@@ -67,7 +67,7 @@ Parameters:
 
   VpcCidrBlock:
     Type: String
-    Description: "VPC Address Range, CIDR notation (/26 recommended, VPC subnets will be /28 regardless)"
+    Description: "VPC Address Range, CIDR notation (/26 recommended, VPC subnets will be /28 regardless) - for sanity, don't overlap this with other VPCs!"
     Default: "10.100.1.0/26"
 
   VolumeMountPoint:
@@ -75,30 +75,109 @@ Parameters:
     Description: "Path to mount the Efs Volume"
     Default: "/config"
 
-  MaxPlayers:
-    Type: Number
-    Description: "Number of players. May affect CPU/RAM needs."
-    Default: 8
-
-  PUserId:
-    Type: String
-    Description: (Optional - empty does not override) PUID - Override Linux user ID
-    Value: ''
-
-  PGroupId:
-    Type: String
-    Description: (Optional - empty does not override) PGID - Override Linux group ID
-    Value: ''
-
   HostedZoneId:
     Type: String
-    Description: (Optional - An empty value disables this feature) If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Game instance starts, supply the hosted zone ID here (long alphanumeric string).
+    Description: "(Optional - An empty value disables this feature) If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Game instance starts, supply the hosted zone ID here (long alphanumeric string)."
     Default: ''
 
   RecordName:
     Type: String
-    Description: (Optional - An empty value disables this feature) If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Game instance starts, supply the name of the full record here (e.g. gameygame.example.com).
+    Description: "(Optional - An empty value disables this feature) If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Game instance starts, supply the name of the full record here (e.g. gameygame.example.com)."
     Default: ''
+
+  # ====================================================
+  # SERVER CONFIG ENVs
+  # ====================================================
+
+  DebugMode:
+    Type: String
+    Description: "For debugging the server"
+    Default: "false"
+    AllowedValues:
+    - "true"
+    - "false"
+
+  DisableSeasonal:
+    Type: String
+    Description: "Disable the seasonal events"
+    Default: "false"
+    AllowedValues:
+    - "true"
+    - "false"
+
+  MaxObjects:
+    Type: Number
+    Description: "Set the object limit for the server. Leave zero for default"
+    Default: 0
+
+  MaxPlayers:
+    Type: Number
+    Description: "Number of players. May affect CPU/RAM needs."
+    Default: 6
+
+  MaxTickRate:
+    Type: Number
+    Description: "Simulation tick rate for your server. Set to zero for default, but 30 Hz is good"
+    Default: 30
+    MinValue: 0
+    MaxValue: 400
+
+  PUserId:
+    Type: Number
+    Description: "(Optional - zero does not override) PUID - Override Linux user ID"
+    Default: 0
+    MinValue: 0
+    MaxValue: 65535
+
+  PGroupId:
+    Type: Number
+    Description: "(Optional - zero does not override) PGID - Override Linux group ID"
+    Default: 0
+    MinValue: 0
+    MaxValue: 65535
+
+  Rootless:
+    Type: String
+    Description: "Run as non-root (check container docs; MIGHT NOT WORK!)"
+    Default: "false"
+    AllowedValues:
+    - "true"
+    - "false"
+
+  ServerStreaming:
+    Type: String
+    Description: "Whether the game utilizes asset streaming"
+    Default: "true"
+    AllowedValues:
+    - "true"
+    - "false"
+
+  SkipUpdate:
+    Type: String
+    Description: "Skip updating (downloading) the server from Steam"
+    Default: "false"
+    AllowedValues:
+    - "true"
+    - "false"
+
+  SteamBeta:
+    Type: String
+    Description: "Set to 'true' to use the Steam 'experimental' branch"
+    Default: "false"
+    AllowedValues:
+    - "true"
+    - "false"
+
+  ClientTimeout:
+    Type: Number
+    Description: "Client timeout in seconds"
+    Default: 30
+    MinValue: 5
+    MaxValue: 1500
+
+  # ====================================================
+  # END OF SERVER CONFIG ENVs
+  # ====================================================
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -106,16 +185,27 @@ Metadata:
       - Label:
           default: Essential Configuration
         Parameters:
+        - ServerState
         - GameImage
         - GameImageTag
-        - ServerState
         - InstanceType
         - SpotPrice
         - ServerPort
       - Label:
-          default: Other Server Settings
+          default: Server Settings
         Parameters:
+        - DebugMode
+        - DisableSeasonal
+        - MaxObjects
         - MaxPlayers
+        - MaxTickRate
+        - PUserId
+        - PGroupId
+        - Rootless
+        - ServerStreaming
+        - SkipUpdate
+        - SteamBeta
+        - ClientTimeout
       - Label:
           default: Remote Access (SSH) Configuration (Optional)
         Parameters:
@@ -131,52 +221,76 @@ Metadata:
           default: Nerdy Details
         Parameters:
         - ECSAMI
-        - PUserId
-        - PGroupId
         - ContainerPort
         - VolumeMountPoint
         - MemoryReservationECS
         - VpcCidrBlock
     ParameterLabels:
-      GameImage:
-        default: "Which docker hub container are you using?"
-      GameImageTag:
-        default: "Which version of the Game image do you want to launch?"
-      ServerState:
-        default: "Update this parameter to shut down / start up your Game server as required to save on cost. Takes a few minutes to take effect (ASG target)."
-      InstanceType:
-        default: "Which instance type? You must make sure this is available in your region! https://aws.amazon.com/ec2/pricing/on-demand/"
-      SpotPrice:
-        default: "Maximum spot price per hour? Leave blank to disable spot pricing."
-      KeyPairName:
-        default: "If you wish to access the instance via SSH, select a Key Pair to use. https://console.aws.amazon.com/ec2/v2/home?#KeyPairs:sort=keyName"
-      YourIPv4:
-        default: "If you wish to access the instance via SSH, provide your public IP v4 address."
-      YourIPv6:
-        default: "If you wish to access the instance via SSH, provide your public IP v6 address."
-      HostedZoneId:
-        default: "If you have a hosted zone in Route 53 and wish to update a DNS record whenever your Game instance starts, supply the hosted zone ID here (not the domain; the ID)."
-      RecordName:
-        default: "If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Game instance starts, supply a record name here (e.g. gameygame.mydomain.com)."
       ECSAMI:
-        default: "ECS AMI Name"
-      PUserId:
-        default: "Set the PUID env var if needed, e.g., 1000"
-      PGroupId:
-        default: "Set the PGID env var if needed, e.g., 1000"
-      ContainerPort:
-        default: "Set internal port used by the daemon in the container"
+        default: "ECS AMI"
       MemoryReservationECS:
-        default: "Minimum required memory for the container (check wiki/etc. recommendations)"
+        default: "Reserved RAM"
+      GameImage:
+        default: "Docker Hub Container Image"
+      GameImageTag:
+        default: "Container Tag or Version"
+      ServerState:
+        default: "SERVER STATE - Update this to stop/start!"
+      InstanceType:
+        default: "EC2 Instance type"
+      SpotPrice:
+        default: "Spot Price Limit"
+      KeyPairName:
+        default: "SSH Keypair Name"
+      YourIPv4:
+        default: "Your IPv4 Address"
+      YourIPv6:
+        default: "Your IPv6 Address"
+      HostedZoneId:
+        default: "Route53 Zone ID"
+      RecordName:
+        default: "Route53 Hostname"
+      ServerPort:
+        default: "Server Port"
+      ContainerPort:
+        default: "Container Port"
       VpcCidrBlock:
-        default: "IPv4 address range for the VPC; for sanity, don't overlap with other VPCs!"
+        default: "VPC Network Range"
+      # Env vars
+      DebugMode:
+        default: "Debug the Server"
+      DisableSeasonal:
+        default: "Turn off the seasonal events, like a killjoy"
+      MaxObjects:
+        default: "Object Limit"
+      MaxPlayers:
+        default: "Player Limit"
+      MaxTickRate:
+        default: "Maximum Tick Rate"
+      PUserId:
+        default: "User ID override"
+      PGroupId:
+        default: "Group ID override"
+      Rootless:
+        default: "Rootless?"
+      ServerStreaming:
+        default: "Enable Asset Streaming?"
+      SkipUpdate:
+        default: "Skip Server Update?"
+      SteamBeta:
+        default: "Use Beta/Experimental Server?"
+      ClientTimeout:
+        default: "Player Client Timeout"
+      # End env vars
 Conditions:
   KeyPairNameProvided: !Not [ !Equals [ !Ref KeyPairName, '' ] ]
   IPv4AddressProvided: !Not [ !Equals [ !Ref YourIPv4, '' ] ]
   IPv6AddressProvided: !Not [ !Equals [ !Ref YourIPv6, '' ] ]
-  PUserIdProvided: !Not [ !Equals [ !Ref PUserId, '' ] ]
-  PGroupIdProvided: !Not [ !Equals [ !Ref PGroupId, '' ] ]
   DnsConfigEnabled: !And [ !Not [ !Equals [ !Ref HostedZoneId, '' ] ], !Not [ !Equals [ !Ref RecordName, '' ] ] ]
+  MaxObjectsProvided: !Not [ !Equals [ !Ref MaxObjects, 0 ] ]
+  MaxTickRateProvided: !Not [ !Equals [ !Ref MaxTickRate, 0 ] ]
+  PUserIdProvided: !Not [ !Equals [ !Ref PUserId, 0 ] ]
+  PGroupIdProvided: !Not [ !Equals [ !Ref PGroupId, 0 ] ]
   SpotPriceProvided: !Not [ !Equals [ !Ref SpotPrice, '' ] ]
 
 Mappings:
@@ -422,22 +536,44 @@ Resources:
             SourceVolume: gamedata
             ReadOnly: false
           Environment:
+          - Name: DEBUG
+            Value: !Sub "${DebugMode}"
+          - Name: DISABLESEASONALEVENTS
+            Value: !Sub "${DisableSeasonal}"
+          - !If
+            - MaxObjectsProvided
+            - Name: "MAXOBJECTS"
+              Value: !Sub "${MaxObjects}"
+            - !Ref 'AWS::NoValue'
           - Name: MAXPLAYERS
             Value: !Sub "${MaxPlayers}"
-      - Name: ROOTLESS
-        Value: false
-      - Name: STEAMBETA
-        Value: false
-      - !If
-        - PUserIdProvided
-        - Name: "PUID"
-          Value: !Sub "${PUserId}"
-        - !Ref 'AWS::NoValue'
-      - !If
-        - PGroupIdProvided
-        - Name: "PGID"
-          Value: !Sub "${PGroupId}"
-        - !Ref 'AWS::NoValue'
+          - !If
+            - MaxTickRateProvided
+            - Name: "MAXTICKRATE"
+              Value: !Sub "${MaxTickRate}"
+            - !Ref 'AWS::NoValue'
+          - !If
+            - PUserIdProvided
+            - Name: "PUID"
+              Value: !Sub "${PUserId}"
+            - !Ref 'AWS::NoValue'
+          - !If
+            - PGroupIdProvided
+            - Name: "PGID"
+              Value: !Sub "${PGroupId}"
+            - !Ref 'AWS::NoValue'
+          - Name: ROOTLESS
+            Value: !Sub "${Rootless}"
+          - Name: SERVERGAMEPORT
+            Value: !Sub "${ServerPort}"
+          - Name: SERVERSTREAMING
+            Value: !Sub "${ServerStreaming}"
+          - Name: SKIPUPDATE
+            Value: !Sub "${SkipUpdate}"
+          - Name: STEAMBETA
+            Value: !Sub "${SteamBeta}"
+          - Name: TIMEOUT
+            Value: !Sub "${ClientTimeout}"
 
   # ====================================================
   # SET DNS RECORD
