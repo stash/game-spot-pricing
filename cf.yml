@@ -48,7 +48,7 @@ Parameters:
     Default: "0.08"
 
   KeyPairName:
-    Type: String
+    Type: AWS::EC2::KeyPair::KeyName
     Description: "(Optional - An empty value disables this feature) SSH Key name from https://console.aws.amazon.com/ec2/v2/home?#KeyPairs:sort=keyName"
     Default: ""
 
@@ -83,13 +83,23 @@ Parameters:
     Default: "/config"
 
   HostedZoneId:
-    Type: String
+    Type: AWS::Route53::HostedZone::Id
     Description: "(Optional - An empty value disables this feature) If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Game instance starts, supply the hosted zone ID here (long alphanumeric string)."
     Default: ""
 
   RecordName:
     Type: String
     Description: "(Optional - An empty value disables this feature) If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Game instance starts, supply the name of the full record here (e.g. gameygame.example.com)."
+    Default: ""
+
+  AZOne:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: "Leave blank for automatic, otherwise pick the lowest spot price zone. Note that the instance type you picked above must be present in both zones. (AZOne)"
+    Default: ""
+
+  AZTwo:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: "Leave blank for automatic, otherwires pick the 2nd-lowest spot price zone. Note that the instance type you picked above must be present in both zones. (AZTwo)"
     Default: ""
 
   # ====================================================
@@ -196,6 +206,8 @@ Metadata:
           - GameImage
           - GameImageTag
           - InstanceType
+          - AZOne
+          - AZTwo
           - MemoryReservationECS
           - SpotPrice
           - ServerPort
@@ -248,6 +260,10 @@ Metadata:
         default: "EC2 Instance type"
       SpotPrice:
         default: "Spot Price Limit"
+      AZOne:
+        default: "First Availability Zone"
+      AZTwo:
+        default: "Second Availability Zone"
       KeyPairName:
         default: "SSH Keypair Name"
       YourIPv4:
@@ -296,6 +312,8 @@ Conditions:
   KeyPairNameProvided: !Not [!Equals [!Ref KeyPairName, ""]]
   IPv4AddressProvided: !Not [!Equals [!Ref YourIPv4, ""]]
   IPv6AddressProvided: !Not [!Equals [!Ref YourIPv6, ""]]
+  AZOneProvided: !Not [!Equals [!Ref AZOne, ""]]
+  AZTwoProvided: !Not [!Equals [!Ref AZTwo, ""]]
   DnsConfigEnabled:
     !And [
       !Not [!Equals [!Ref HostedZoneId, ""]],
@@ -345,11 +363,11 @@ Resources:
   SubnetA:
     Type: AWS::EC2::Subnet
     Properties:
-      # 1 = the "b" zone, usually
-      AvailabilityZone: !Select
-        - 1
-        - !GetAZs
-          Ref: "AWS::Region"
+      AvailabilityZone: !If
+        - AZOneProvided
+        - !Ref AZOne
+        # 1 = the "b" zone, usually
+        - !Select [1, !GetAZs { Ref: "AWS::Region" }]
       CidrBlock: !Select [0, !Cidr [!Ref VpcCidrBlock, 4, 4]]
       VpcId: !Ref Vpc
 
@@ -368,11 +386,11 @@ Resources:
   SubnetB:
     Type: AWS::EC2::Subnet
     Properties:
-      # 2 = the "c" zone, usually
-      AvailabilityZone: !Select
-        - 2
-        - !GetAZs
-          Ref: "AWS::Region"
+      AvailabilityZone: !If
+        - AZTwoProvided
+        - !Ref AZTwo
+        # 2 = the "c" zone, usually
+        - !Select [2, !GetAZs { Ref: "AWS::Region" }]
       CidrBlock: !Select [1, !Cidr [!Ref VpcCidrBlock, 4, 4]]
       VpcId: !Ref Vpc
 
