@@ -1,7 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Game Spot Price Server via Docker / ECS
+Description: Satisfactory Spot Price Server via Docker / ECS
 Parameters:
-
   ECSAMI:
     Description: "AWS ECS AMI ID - Default is for x86-64 (not arm64). See https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html"
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
@@ -27,8 +26,16 @@ Parameters:
     Description: "Running: A spot instance will launch shortly after setting this parameter; your Game server should start within 5-10 minutes of changing this parameter (once UPDATE_IN_PROGRESS becomes UPDATE_COMPLETE). Stopped: Your spot instance (and thus Game container) will be terminated shortly after setting this parameter."
     Default: Running
     AllowedValues:
-    - Running
-    - Stopped
+      - Running
+      - Stopped
+
+  ServerClaimed:
+    Type: String
+    Description: "Unclaimed Satisfactory servers have takeover risk until Claimed. Unclaimed mode restricts all inbound traffic to IP address(es) below. This will prevent takeover before you set the admin password. After you Claim, come back here and change this to let your friends in."
+    Default: "Unclaimed"
+    AllowedValues:
+      - "Claimed"
+      - "Unclaimed"
 
   InstanceType:
     Type: String
@@ -43,17 +50,17 @@ Parameters:
   KeyPairName:
     Type: String
     Description: "(Optional - An empty value disables this feature) SSH Key name from https://console.aws.amazon.com/ec2/v2/home?#KeyPairs:sort=keyName"
-    Default: ''
+    Default: ""
 
   YourIPv4:
     Type: String
-    Description: "(Optional - An empty value disables this feature) Restrict SSH to this address"
-    Default: ''
+    Description: "(Recommended) IPv4 address to give privileged access. SET THIS WHEN SERVER IS UNCLAIMED; it allows you and only you unrestricted access during setup. If blank when Unclaimed, *ALL* IPv4 traffic is denied for safety. Once server is Claimed: SSH will be enabled if and only if this IP is set."
+    Default: ""
 
   YourIPv6:
     Type: String
-    Description: "(Optional - An empty value disables this feature) Restrict SSH to this address"
-    Default: ''
+    Description: "(Recommended) IPv6 address to give privileged access. See the IPv4 description above for more info."
+    Default: ""
 
   ServerPort:
     Type: Number
@@ -78,12 +85,12 @@ Parameters:
   HostedZoneId:
     Type: String
     Description: "(Optional - An empty value disables this feature) If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Game instance starts, supply the hosted zone ID here (long alphanumeric string)."
-    Default: ''
+    Default: ""
 
   RecordName:
     Type: String
     Description: "(Optional - An empty value disables this feature) If you have a hosted zone in Route 53 and wish to set a DNS record whenever your Game instance starts, supply the name of the full record here (e.g. gameygame.example.com)."
-    Default: ''
+    Default: ""
 
   # ====================================================
   # SERVER CONFIG ENVs
@@ -94,16 +101,16 @@ Parameters:
     Description: "For debugging the server"
     Default: "false"
     AllowedValues:
-    - "true"
-    - "false"
+      - "true"
+      - "false"
 
   DisableSeasonal:
     Type: String
     Description: "Disable the seasonal events"
     Default: "false"
     AllowedValues:
-    - "true"
-    - "false"
+      - "true"
+      - "false"
 
   MaxObjects:
     Type: Number
@@ -141,32 +148,32 @@ Parameters:
     Description: "Run as non-root (check container docs; MIGHT NOT WORK!)"
     Default: "false"
     AllowedValues:
-    - "true"
-    - "false"
+      - "true"
+      - "false"
 
   ServerStreaming:
     Type: String
     Description: "Whether the game utilizes asset streaming"
     Default: "true"
     AllowedValues:
-    - "true"
-    - "false"
+      - "true"
+      - "false"
 
   SkipUpdate:
     Type: String
     Description: "Skip updating (downloading) the server from Steam"
     Default: "false"
     AllowedValues:
-    - "true"
-    - "false"
+      - "true"
+      - "false"
 
   SteamBeta:
     Type: String
     Description: "Set to 'true' to use the Steam 'experimental' branch"
     Default: "false"
     AllowedValues:
-    - "true"
-    - "false"
+      - "true"
+      - "false"
 
   ClientTimeout:
     Type: Number
@@ -185,46 +192,47 @@ Metadata:
       - Label:
           default: Essential Configuration
         Parameters:
-        - ServerState
-        - GameImage
-        - GameImageTag
-        - InstanceType
-        - SpotPrice
-        - ServerPort
+          - ServerState
+          - GameImage
+          - GameImageTag
+          - InstanceType
+          - MemoryReservationECS
+          - SpotPrice
+          - ServerPort
+      - Label:
+          default: Access Control
+        Parameters:
+          - ServerClaimed
+          - YourIPv4
+          - YourIPv6
+          - KeyPairName
       - Label:
           default: Server Settings
         Parameters:
-        - DebugMode
-        - DisableSeasonal
-        - MaxObjects
-        - MaxPlayers
-        - MaxTickRate
-        - PUserId
-        - PGroupId
-        - Rootless
-        - ServerStreaming
-        - SkipUpdate
-        - SteamBeta
-        - ClientTimeout
-      - Label:
-          default: Remote Access (SSH) Configuration (Optional)
-        Parameters:
-        - KeyPairName
-        - YourIPv4
-        - YourIPv6
+          - DebugMode
+          - DisableSeasonal
+          - MaxObjects
+          - MaxPlayers
+          - MaxTickRate
+          - PUserId
+          - PGroupId
+          - Rootless
+          - ServerStreaming
+          - SkipUpdate
+          - SteamBeta
+          - ClientTimeout
       - Label:
           default: Optional DNS Configuration
         Parameters:
-        - HostedZoneId
-        - RecordName
+          - HostedZoneId
+          - RecordName
       - Label:
           default: Nerdy Details
         Parameters:
-        - ECSAMI
-        - ContainerPort
-        - VolumeMountPoint
-        - MemoryReservationECS
-        - VpcCidrBlock
+          - ECSAMI
+          - ContainerPort
+          - VolumeMountPoint
+          - VpcCidrBlock
     ParameterLabels:
       ECSAMI:
         default: "ECS AMI"
@@ -250,6 +258,8 @@ Metadata:
         default: "Route53 Zone ID"
       RecordName:
         default: "Route53 Hostname"
+      ServerClaimed:
+        default: "Is Server Claimed?"
       ServerPort:
         default: "Server Port"
       ContainerPort:
@@ -283,15 +293,35 @@ Metadata:
         default: "Player Client Timeout"
       # End env vars
 Conditions:
-  KeyPairNameProvided: !Not [ !Equals [ !Ref KeyPairName, '' ] ]
-  IPv4AddressProvided: !Not [ !Equals [ !Ref YourIPv4, '' ] ]
-  IPv6AddressProvided: !Not [ !Equals [ !Ref YourIPv6, '' ] ]
-  DnsConfigEnabled: !And [ !Not [ !Equals [ !Ref HostedZoneId, '' ] ], !Not [ !Equals [ !Ref RecordName, '' ] ] ]
-  MaxObjectsProvided: !Not [ !Equals [ !Ref MaxObjects, 0 ] ]
-  MaxTickRateProvided: !Not [ !Equals [ !Ref MaxTickRate, 0 ] ]
-  PUserIdProvided: !Not [ !Equals [ !Ref PUserId, 0 ] ]
-  PGroupIdProvided: !Not [ !Equals [ !Ref PGroupId, 0 ] ]
-  SpotPriceProvided: !Not [ !Equals [ !Ref SpotPrice, '' ] ]
+  KeyPairNameProvided: !Not [!Equals [!Ref KeyPairName, ""]]
+  IPv4AddressProvided: !Not [!Equals [!Ref YourIPv4, ""]]
+  IPv6AddressProvided: !Not [!Equals [!Ref YourIPv6, ""]]
+  DnsConfigEnabled:
+    !And [
+      !Not [!Equals [!Ref HostedZoneId, ""]],
+      !Not [!Equals [!Ref RecordName, ""]],
+    ]
+  MaxObjectsProvided: !Not [!Equals [!Ref MaxObjects, 0]]
+  MaxTickRateProvided: !Not [!Equals [!Ref MaxTickRate, 0]]
+  PUserIdProvided: !Not [!Equals [!Ref PUserId, 0]]
+  PGroupIdProvided: !Not [!Equals [!Ref PGroupId, 0]]
+  SpotPriceProvided: !Not [!Equals [!Ref SpotPrice, ""]]
+  IsUnclaimed: !Equals [!Ref ServerClaimed, "Unclaimed"]
+  IsClaimed: !Equals [!Ref ServerClaimed, "Claimed"]
+  SSHv4:
+    !And [
+      !Condition IsClaimed,
+      !Condition IPv4AddressProvided,
+      !Condition KeyPairNameProvided,
+    ]
+  SSHv6:
+    !And [
+      !Condition IsClaimed,
+      !Condition IPv6AddressProvided,
+      !Condition KeyPairNameProvided,
+    ]
+  UnclaimedV4: !And [!Condition IPv4AddressProvided, !Condition IsUnclaimed]
+  UnclaimedV6: !And [!Condition IPv6AddressProvided, !Condition IsUnclaimed]
 
 Mappings:
   ServerState:
@@ -301,7 +331,6 @@ Mappings:
       DesiredCapacity: 0
 
 Resources:
-
   # ====================================================
   # BASIC VPC
   # ====================================================
@@ -318,10 +347,10 @@ Resources:
     Properties:
       # 1 = the "b" zone, usually
       AvailabilityZone: !Select
-      - 1
-      - !GetAZs
-        Ref: 'AWS::Region'
-      CidrBlock: !Select [ 0, !Cidr [ !Ref VpcCidrBlock, 4, 4 ] ]
+        - 1
+        - !GetAZs
+          Ref: "AWS::Region"
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidrBlock, 4, 4]]
       VpcId: !Ref Vpc
 
   SubnetARoute:
@@ -341,10 +370,10 @@ Resources:
     Properties:
       # 2 = the "c" zone, usually
       AvailabilityZone: !Select
-      - 2
-      - !GetAZs
-        Ref: 'AWS::Region'
-      CidrBlock: !Select [ 1, !Cidr [ !Ref VpcCidrBlock, 4, 4 ] ]
+        - 2
+        - !GetAZs
+          Ref: "AWS::Region"
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidrBlock, 4, 4]]
       VpcId: !Ref Vpc
 
   InternetGateway:
@@ -378,15 +407,15 @@ Resources:
     DeletionPolicy: Retain
     Properties:
       LifecyclePolicies:
-      - TransitionToIA: AFTER_7_DAYS
-      - TransitionToPrimaryStorageClass: AFTER_1_ACCESS
+        - TransitionToIA: AFTER_7_DAYS
+        - TransitionToPrimaryStorageClass: AFTER_1_ACCESS
 
   MountA:
     Type: AWS::EFS::MountTarget
     Properties:
       FileSystemId: !Ref Efs
       SecurityGroups:
-      - !Ref EfsSg
+        - !Ref EfsSg
       SubnetId: !Ref SubnetA
 
   MountB:
@@ -394,7 +423,7 @@ Resources:
     Properties:
       FileSystemId: !Ref Efs
       SecurityGroups:
-      - !Ref EfsSg
+        - !Ref EfsSg
       SubnetId: !Ref SubnetB
 
   EfsSg:
@@ -403,10 +432,10 @@ Resources:
       GroupName: !Sub "${AWS::StackName}-efs"
       GroupDescription: !Sub "${AWS::StackName}-efs"
       SecurityGroupIngress:
-      - FromPort: 2049
-        ToPort: 2049
-        IpProtocol: tcp
-        SourceSecurityGroupId: !Ref Ec2Sg
+        - FromPort: 2049
+          ToPort: 2049
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref Ec2Sg
       VpcId: !Ref Vpc
 
   # ====================================================
@@ -419,28 +448,71 @@ Resources:
       GroupName: !Sub "${AWS::StackName}-ec2"
       GroupDescription: !Sub "${AWS::StackName}-ec2"
       SecurityGroupIngress:
-      - !If
-        - IPv4AddressProvided
-        - FromPort: 22
-          ToPort: 22
-          IpProtocol: tcp
-          CidrIp: !Sub "${YourIPv4}/32"
-        - !Ref 'AWS::NoValue'
-      - !If
-        - IPv6AddressProvided
-        - FromPort: 22
-          ToPort: 22
-          IpProtocol: tcp
-          CidrIpv6: !Sub "${YourIPv6}/128"
-        - !Ref 'AWS::NoValue'
-      - FromPort: !Ref ServerPort
-        ToPort: !Ref ServerPort
-        IpProtocol: udp
-        CidrIp: 0.0.0.0/0
-      - FromPort: !Ref ServerPort
-        ToPort: !Ref ServerPort
-        IpProtocol: tcp
-        CidrIp: 0.0.0.0/0
+        # SSH #########################
+        - !If
+          - SSHv4
+          - FromPort: 22
+            ToPort: 22
+            IpProtocol: tcp
+            CidrIp: !Sub "${YourIPv4}/32"
+            Description: "Claimed mode SSH"
+          - !Ref "AWS::NoValue"
+        - !If
+          - SSHv6
+          - FromPort: 22
+            ToPort: 22
+            IpProtocol: tcp
+            CidrIpv6: !Sub "${YourIPv6}/128"
+            Description: "Claimed mode SSH"
+          - !Ref "AWS::NoValue"
+        # UDP #########################
+        - !If
+          - IsClaimed
+          - FromPort: !Ref ServerPort
+            ToPort: !Ref ServerPort
+            IpProtocol: udp
+            CidrIp: "0.0.0.0/0"
+            Description: "Claimed mode game port"
+          - !Ref "AWS::NoValue"
+        - !If
+          - IsClaimed
+          - FromPort: !Ref ServerPort
+            ToPort: !Ref ServerPort
+            IpProtocol: udp
+            CidrIpv6: "::/0"
+            Description: "Claimed mode game port"
+          - !Ref "AWS::NoValue"
+        # TCP #########################
+        - !If
+          - IsClaimed
+          - FromPort: !Ref ServerPort
+            ToPort: !Ref ServerPort
+            IpProtocol: tcp
+            CidrIp: "0.0.0.0/0"
+            Description: "Claimed mode game port"
+          - !Ref "AWS::NoValue"
+        - !If
+          - IsClaimed
+          - FromPort: !Ref ServerPort
+            ToPort: !Ref ServerPort
+            IpProtocol: tcp
+            CidrIpv6: "::/0"
+            Description: "Claimed mode game port"
+          - !Ref "AWS::NoValue"
+        # Unclaimed Mode ##############
+        # Note: "-1" allows all ports
+        - !If
+          - UnclaimedV4
+          - IpProtocol: -1
+            CidrIp: !Sub "${YourIPv4}/32"
+            Description: "Unclaimed mode IPv4"
+          - !Ref "AWS::NoValue"
+        - !If
+          - UnclaimedV6
+          - IpProtocol: -1
+            CidrIpv6: !Sub "${YourIPv6}/128"
+            Description: "Unclaimed mode IPv6"
+          - !Ref "AWS::NoValue"
       VpcId: !Ref Vpc
 
   LaunchConfiguration:
@@ -450,11 +522,10 @@ Resources:
       IamInstanceProfile: !Ref InstanceProfile
       ImageId: !Ref ECSAMI
       InstanceType: !Ref InstanceType
-      KeyName:
-        !If [ KeyPairNameProvided, !Ref KeyPairName, !Ref 'AWS::NoValue' ]
+      KeyName: !If [KeyPairNameProvided, !Ref KeyPairName, !Ref "AWS::NoValue"]
       SecurityGroups:
-      - !Ref Ec2Sg
-      SpotPrice: !If [ SpotPriceProvided, !Ref SpotPrice, !Ref 'AWS::NoValue' ]
+        - !Ref Ec2Sg
+      SpotPrice: !If [SpotPriceProvided, !Ref SpotPrice, !Ref "AWS::NoValue"]
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash -xe
@@ -464,10 +535,11 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       AutoScalingGroupName: !Sub "${AWS::StackName}-asg"
-      DesiredCapacity: !FindInMap [ ServerState, !Ref ServerState, DesiredCapacity ]
+      DesiredCapacity:
+        !FindInMap [ServerState, !Ref ServerState, DesiredCapacity]
       LaunchConfigurationName: !Ref LaunchConfiguration
-      MaxSize: !FindInMap [ ServerState, !Ref ServerState, DesiredCapacity ]
-      MinSize: !FindInMap [ ServerState, !Ref ServerState, DesiredCapacity ]
+      MaxSize: !FindInMap [ServerState, !Ref ServerState, DesiredCapacity]
+      MinSize: !FindInMap [ServerState, !Ref ServerState, DesiredCapacity]
       VPCZoneIdentifier:
         - !Ref SubnetA
         - !Ref SubnetB
@@ -476,14 +548,14 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
-        - Effect: Allow
-          Principal:
-            Service:
-            - ec2.amazonaws.com
-          Action:
-          - sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
 
@@ -502,7 +574,7 @@ Resources:
     Type: AWS::ECS::Service
     Properties:
       Cluster: !Ref EcsCluster
-      DesiredCount: !FindInMap [ ServerState, !Ref ServerState, DesiredCapacity ]
+      DesiredCount: !FindInMap [ServerState, !Ref ServerState, DesiredCapacity]
       ServiceName: !Sub "${AWS::StackName}-ecs-service"
       TaskDefinition: !Ref EcsTask
       DeploymentConfiguration:
@@ -512,68 +584,68 @@ Resources:
   EcsTask:
     Type: AWS::ECS::TaskDefinition
     DependsOn:
-    - MountA
-    - MountB
+      - MountA
+      - MountB
     Properties:
       Volumes:
-      - Name: gamedata
-        EFSVolumeConfiguration:
-          FilesystemId: !Ref Efs
-          TransitEncryption: ENABLED
+        - Name: gamedata
+          EFSVolumeConfiguration:
+            FilesystemId: !Ref Efs
+            TransitEncryption: ENABLED
       ContainerDefinitions:
         - Name: game
           MemoryReservation: !Ref MemoryReservationECS
           Image: !Sub "${GameImage}:${GameImageTag}"
           PortMappings:
-          - ContainerPort: !Ref ContainerPort
-            HostPort: !Ref ServerPort
-            Protocol: udp
-          - ContainerPort: !Ref ContainerPort
-            HostPort: !Ref ServerPort
-            Protocol: tcp
+            - ContainerPort: !Ref ContainerPort
+              HostPort: !Ref ServerPort
+              Protocol: udp
+            - ContainerPort: !Ref ContainerPort
+              HostPort: !Ref ServerPort
+              Protocol: tcp
           MountPoints:
-          - ContainerPath: !Ref VolumeMountPoint
-            SourceVolume: gamedata
-            ReadOnly: false
+            - ContainerPath: !Ref VolumeMountPoint
+              SourceVolume: gamedata
+              ReadOnly: false
           Environment:
-          - Name: DEBUG
-            Value: !Sub "${DebugMode}"
-          - Name: DISABLESEASONALEVENTS
-            Value: !Sub "${DisableSeasonal}"
-          - !If
-            - MaxObjectsProvided
-            - Name: "MAXOBJECTS"
-              Value: !Sub "${MaxObjects}"
-            - !Ref 'AWS::NoValue'
-          - Name: MAXPLAYERS
-            Value: !Sub "${MaxPlayers}"
-          - !If
-            - MaxTickRateProvided
-            - Name: "MAXTICKRATE"
-              Value: !Sub "${MaxTickRate}"
-            - !Ref 'AWS::NoValue'
-          - !If
-            - PUserIdProvided
-            - Name: "PUID"
-              Value: !Sub "${PUserId}"
-            - !Ref 'AWS::NoValue'
-          - !If
-            - PGroupIdProvided
-            - Name: "PGID"
-              Value: !Sub "${PGroupId}"
-            - !Ref 'AWS::NoValue'
-          - Name: ROOTLESS
-            Value: !Sub "${Rootless}"
-          - Name: SERVERGAMEPORT
-            Value: !Sub "${ServerPort}"
-          - Name: SERVERSTREAMING
-            Value: !Sub "${ServerStreaming}"
-          - Name: SKIPUPDATE
-            Value: !Sub "${SkipUpdate}"
-          - Name: STEAMBETA
-            Value: !Sub "${SteamBeta}"
-          - Name: TIMEOUT
-            Value: !Sub "${ClientTimeout}"
+            - Name: DEBUG
+              Value: !Sub "${DebugMode}"
+            - Name: DISABLESEASONALEVENTS
+              Value: !Sub "${DisableSeasonal}"
+            - !If
+              - MaxObjectsProvided
+              - Name: "MAXOBJECTS"
+                Value: !Sub "${MaxObjects}"
+              - !Ref "AWS::NoValue"
+            - Name: MAXPLAYERS
+              Value: !Sub "${MaxPlayers}"
+            - !If
+              - MaxTickRateProvided
+              - Name: "MAXTICKRATE"
+                Value: !Sub "${MaxTickRate}"
+              - !Ref "AWS::NoValue"
+            - !If
+              - PUserIdProvided
+              - Name: "PUID"
+                Value: !Sub "${PUserId}"
+              - !Ref "AWS::NoValue"
+            - !If
+              - PGroupIdProvided
+              - Name: "PGID"
+                Value: !Sub "${PGroupId}"
+              - !Ref "AWS::NoValue"
+            - Name: ROOTLESS
+              Value: !Sub "${Rootless}"
+            - Name: SERVERGAMEPORT
+              Value: !Sub "${ServerPort}"
+            - Name: SERVERSTREAMING
+              Value: !Sub "${ServerStreaming}"
+            - Name: SKIPUPDATE
+              Value: !Sub "${SkipUpdate}"
+            - Name: STEAMBETA
+              Value: !Sub "${SteamBeta}"
+            - Name: TIMEOUT
+              Value: !Sub "${ClientTimeout}"
 
   # ====================================================
   # SET DNS RECORD
@@ -584,14 +656,14 @@ Resources:
     Condition: DnsConfigEnabled
     Properties:
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
-        - Effect: Allow
-          Principal:
-            Service:
-            - lambda.amazonaws.com
-          Action:
-          - sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
@@ -654,12 +726,12 @@ Resources:
     Properties:
       EventPattern:
         source:
-        - aws.autoscaling
+          - aws.autoscaling
         detail-type:
-        - EC2 Instance Launch Successful
+          - EC2 Instance Launch Successful
         detail:
           AutoScalingGroupName:
-          - !Ref AutoScalingGroup
+            - !Ref AutoScalingGroup
       Name: !Sub "${AWS::StackName}-instance-launch"
       State: ENABLED
       Targets:
