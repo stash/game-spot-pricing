@@ -57,11 +57,6 @@ Parameters:
     Description: "(Recommended) IPv4 address to give privileged access. SET THIS WHEN SERVER IS UNCLAIMED; it allows you and only you unrestricted access during setup. If blank when Unclaimed, *ALL* IPv4 traffic is denied for safety. Once server is Claimed: SSH will be enabled if and only if this IP is set."
     Default: ""
 
-  YourIPv6:
-    Type: String
-    Description: "(Recommended) IPv6 address to give privileged access. See the IPv4 description above for more info."
-    Default: ""
-
   ServerPort:
     Type: Number
     Description: "Listen TCP/UDP Port on Internet"
@@ -216,7 +211,6 @@ Metadata:
         Parameters:
           - ServerClaimed
           - YourIPv4
-          - YourIPv6
           - KeyPairName
       - Label:
           default: Server Settings
@@ -268,8 +262,6 @@ Metadata:
         default: "SSH Keypair Name"
       YourIPv4:
         default: "Your IPv4 Address"
-      YourIPv6:
-        default: "Your IPv6 Address"
       HostedZoneId:
         default: "Route53 Zone ID"
       RecordName:
@@ -311,7 +303,6 @@ Metadata:
 Conditions:
   KeyPairNameProvided: !Not [!Equals [!Ref KeyPairName, ""]]
   IPv4AddressProvided: !Not [!Equals [!Ref YourIPv4, ""]]
-  IPv6AddressProvided: !Not [!Equals [!Ref YourIPv6, ""]]
   AZOneProvided: !Not [!Equals [!Ref AZOne, ""]]
   AZTwoProvided: !Not [!Equals [!Ref AZTwo, ""]]
   DnsConfigEnabled:
@@ -332,14 +323,7 @@ Conditions:
       !Condition IPv4AddressProvided,
       !Condition KeyPairNameProvided,
     ]
-  SSHv6:
-    !And [
-      !Condition IsClaimed,
-      !Condition IPv6AddressProvided,
-      !Condition KeyPairNameProvided,
-    ]
   UnclaimedV4: !And [!Condition IPv4AddressProvided, !Condition IsUnclaimed]
-  UnclaimedV6: !And [!Condition IPv6AddressProvided, !Condition IsUnclaimed]
 
 Mappings:
   ServerState:
@@ -475,14 +459,6 @@ Resources:
             CidrIp: !Sub "${YourIPv4}/32"
             Description: "Claimed mode SSH"
           - !Ref "AWS::NoValue"
-        - !If
-          - SSHv6
-          - FromPort: 22
-            ToPort: 22
-            IpProtocol: tcp
-            CidrIpv6: !Sub "${YourIPv6}/128"
-            Description: "Claimed mode SSH"
-          - !Ref "AWS::NoValue"
         # UDP #########################
         - !If
           - IsClaimed
@@ -490,14 +466,6 @@ Resources:
             ToPort: !Ref ServerPort
             IpProtocol: udp
             CidrIp: "0.0.0.0/0"
-            Description: "Claimed mode game port"
-          - !Ref "AWS::NoValue"
-        - !If
-          - IsClaimed
-          - FromPort: !Ref ServerPort
-            ToPort: !Ref ServerPort
-            IpProtocol: udp
-            CidrIpv6: "::/0"
             Description: "Claimed mode game port"
           - !Ref "AWS::NoValue"
         # TCP #########################
@@ -509,14 +477,6 @@ Resources:
             CidrIp: "0.0.0.0/0"
             Description: "Claimed mode game port"
           - !Ref "AWS::NoValue"
-        - !If
-          - IsClaimed
-          - FromPort: !Ref ServerPort
-            ToPort: !Ref ServerPort
-            IpProtocol: tcp
-            CidrIpv6: "::/0"
-            Description: "Claimed mode game port"
-          - !Ref "AWS::NoValue"
         # Unclaimed Mode ##############
         # Note: "-1" allows all ports
         - !If
@@ -524,12 +484,6 @@ Resources:
           - IpProtocol: -1
             CidrIp: !Sub "${YourIPv4}/32"
             Description: "Unclaimed mode IPv4"
-          - !Ref "AWS::NoValue"
-        - !If
-          - UnclaimedV6
-          - IpProtocol: -1
-            CidrIpv6: !Sub "${YourIPv6}/128"
-            Description: "Unclaimed mode IPv6"
           - !Ref "AWS::NoValue"
       VpcId: !Ref Vpc
 
