@@ -19,30 +19,46 @@ The CloudFormation template is configured to launch this ephemeral instance usin
 A few notes on the services we're using...
 
 * **EFS** - Elastic File System is used to store config, save games, mods etc. None of this is stored on the server itself, as it may terminate at any time.
-* **Auto Scaling** - An Auto Scaling Group is used to maintain a single instance via spot pricing.
+* **Auto Scaling** - An Auto Scaling Group is used to maintain a single instance via spot pricing. It can also implement a time of day schedule.
 * **VPC** - The template deploys a very basic VPC, self-contained and purely for use by the server. This doesn't cost you a cent.
 * **Route53** - For rigging up a nice hostname for your server!
 
 ## Getting Started
 
 1. Log into AWS, pick a region close to your players.
-2. (optional) Set up a Route53 zone if you want
-3. Download the `cf.yml` from this repository (later: might host this on S3)
-4. Make a new CloudFormation project and upload this `cf.yml`
-5. Configure some reasonable values. `t3.xlarge` or the latest variant with 16GiB RAM is ideal. The instance must be x86-64 architecture, not ARM64/Graviton.
-6. Set *Server State* to `Running` and wait!
+1. Download the `cf.yml` from this repository.
+1. Make a new CloudFormation project and upload this `cf.yml`
+1. Configure some reasonable values.
+    1. Stick with `t3.xlarge` or the latest variant with 16GiB RAM.
+    1. Figure out your own IP address. Enter this where prompted.
+    1. **Don't Skip the above step**
+    1. Read the other descriptions carefully
+1. Leave *Server State* as `Stopped` and Apply the changes. Wait until CF reports `CREATE_COMPLETE`.
+1. Now change *Server State* to `Running` and wait _again_.
+1. Log in via Satisfactory and claim the server (see below for how to get the IP address from the EC2 dashboard)
+    1. If you didn't set an administrative IP address, you won't be able to connect while in `Unclaimed` mode.
+    1. You will get a "self signed certificate" warning the first time; just make a note of what this is for next time.
+    1. **SET A GOOD ADMIN PASSWORD**
+    1. Optionally, set a player password too!
+1. Upload a game, change some settings, then log out.
+1. In CF, change server to `Claimed` and apply the change.
+1. Wait until CF completes again.
 
 ## Next Steps
+    
+Remember: **Claim the server and set a password _before_ you change the Claimed parameter in CloudFormation!!**
 
-All things going well, your Satisfactory server should be running in five minutes or so. Wait until CloudFormation reports the stack status as `CREATE_COMPLETE`. Go to the [EC2 dashboard in the AWS console](https://console.aws.amazon.com/ec2/v2/home?#Instances:sort=instanceId) and you should see a Satisfactory server running. Take note of the public IP address. You should be able to fire up Satisfactory, and join via this IP address. No need to provide a port number, we're using Satisfactory's default. *Bonus points* - Public IP addresses are ugly. Refer to Custom Domain Name within Optional Features for a better solution. 
+All things going well, your Satisfactory server should be running in five to fifteen minutes or so. Wait until CloudFormation reports the stack status as `CREATE_COMPLETE`. Go to the [EC2 dashboard in the AWS console](https://console.aws.amazon.com/ec2/v2/home?#Instances:sort=instanceId) and you should see a Satisfactory server running. Take note of the public IP address. You should be able to fire up Satisfactory, and join via this IP address. No need to provide a port number, we're using Satisfactory's default. 
 
-At this point you should *really* configure remote access as per the below section, so that you can access the server and modify files locally if you need.
+Note that until you set the server to Claimed in CF, only your own IP address can access the server.
+
+At this point you should *really* configure remote access as per the below section, so that you can access the server and modify files if you need.
 
 ## Optional Features
 
 ### Remote Access
 
-If you know what you're doing, you might want to **SSH** onto the EC2 Linux instance to see what's going on / debug / make improvements. You might also want to do this to upload your existing save. For security, SSH should be locked down to a known IP address (i.e. you), preventing malicious users from trying to break in (or worse - succeeeding). You'll need to create a Key Pair in AWS, find your public IP address, and then provide both of the parameters in the Remote Access (SSH) Configuration (Optional) section.
+If you know what you're doing, you might want to **SSH** onto the EC2 Linux instance to see what's going on / debug / make improvements. For security, SSH should be locked down to a known IP address (i.e. you), preventing malicious users from trying to break in (or worse - succeeeding). You'll need to create a Key Pair in AWS, find your public IP address, and then provide both of the parameters in the Access Control section.
 
 Note that this assumes some familiarity with SSH. The Linux instance will have a user `ec2-user` which you may connect to via SSH. If you want to upload saves, it's easiest to upload them to `/home/ec2-user` via SCP as the `ec2-user` user (this is `ec2-user`'s home directory), and then `sudo mv` these files to the right location in the Satisfactory installation via SSH.
 
@@ -53,13 +69,29 @@ For remote access, you'll need to:
 
 If you're creating a new Satisfactory deployment, provide these parameters when creating the stack. Otherwise, update your existing stack and provide these parameters.
 
-#### Uploading an existing save.
-
-TBD: yolo that file up under `/config/saved` somewhere. Maybe.
-
 ### Custom Domain Name
 
-Every time your Satisfactory server starts it'll have a new public IP address. This can be a pain to keep dishing out to your friends. If you're prepared to register a domain name (maybe you've already got one) and create a Route 53 hosted zone, this problem is easily fixed. You'll need to provide both of the parameters under the DNS Configuration (Optional) section. Whenever your instance is launched, a Lambda function fires off and creates / updates the record of your choosing. This way, you can have a custom domain name such as "gameygame.example.com". Note that it may take a few minutes for the new IP to propagate to your friends computers. Have patience. Failing that just go to the EC2 console, and give them the new public IP address of your instance.
+Every time your Satisfactory server starts it'll have a new public IP address. This can be a pain to keep dishing out to your friends, especially how the Server menu is currently (you can't edit IPs!).
+
+If you're prepared to register a domain name (maybe you've already got one) and create a Route 53 hosted zone, this problem is easily fixed. You'll need to provide both of the parameters under the Optional DNS Configuration section. Whenever your instance is launched, a Lambda function fires off and creates / updates the record of your choosing. This way, you can have a custom domain name such as "gameygame.example.com". Note that it will take one or two minutes for the new IP to propagate to your friends computers. Have patience. Failing that just go to the EC2 console, and give them the new public IP address of your instance.
+
+### Schedule
+
+You can set a schedule to automatically start & stop your server. There's a Weekday and Weekend schedule so you can set different times with the date range part. Requires knowledge of crontab entries.
+
+The schedule is disabled while the server is in Unclaimed mode.
+
+To override a schedule, e.g., for a holiday or marathon or something:
+1. log into the AWS Console
+2. Go to EC2 > Auto Scaling Groups (sidebar)
+3. Locate the group for this server, click into it
+4. Pick "Automatic scaling" along the top
+5. Find the "Scheduled actions" section
+6. Edit or add actions, noting that 0 = stop vs 1 = start
+    1. E.g., to delay an action, change the Start Time to a future date when it should resume
+    2. For a temporary manual schedule, be sure to set an End Time
+
+Note that any edits here will probably get overridden if you change the Stopped/Running server state in CloudFormation. For permanent schedule changes, be sure to just change it in CF.
 
 ## FAQ
 
@@ -87,6 +119,8 @@ Update your CloudFormation stack. Enter a different limit.
 
 Update your CloudFormation stack. Change the server state parameter from "Running" to "Stopped".
 
+Or, set up an automatic schedule so you can actually get to bed on time.
+
 **I'm done with Satisfactory, how do I delete this server?** 
 
 Delete the CloudFormation stack.  Except for the EFS, Done.  The EFS is retained when the CloudFormation stack is deleted to preserve your saves, but can then be manually deleted via the AWS console.
@@ -103,7 +137,7 @@ Your public IP address has probably changed. [Check your public IP address]((htt
 
 **I've been hacked!**
 
-That sucks! Fortunately: the ECS task & VPC settings should protect you from major damage, and I've made a best effort to minimize the permissions required, but it's entirely possible I missed something. **You're responsible for reviewing the entire CloudFormation template for shenannigans; it's not my problem and you're doing this at your own risk.**
+That sucks! Fortunately: the ECS task & VPC settings should protect you from major damage, and we've made a best effort to minimize the permissions required, but it's entirely possible we missed something. **You're responsible for reviewing the entire CloudFormation template for shenannigans; it's not my problem and you're doing this at your own risk.**
 
 Some ideas:
 * Before you shut down the server, see if any of your infosec / blue-team friends can take a snapshot of the EC2 instance and do forensics. 
@@ -124,10 +158,11 @@ Some ideas:
 
 The two key components that will attract charges are:
 
-* **EC2** - Todo: recalculate on t3.xlarge for 4 hr/day
-* **EFS** - Todo: estimate EFS costs, which are hedged by automatic IA tier after 7 days.
+* **EC2** - t3.xlarge is about $0.07/hr right now. That's $50/mo, so ideally: set a schedule or have friends pitch in.
+* **EFS** - Todo: estimate EFS costs, -- it's about 4GiB for the game, and a few 100MiB for the save. Hedged by automatic IA tier after 7 days. This will likely be peanuts.
+* **Route 53** - Fixed $0.50/mo
 
-AWS does charge for data egress (i.e. data being sent from your server to clients), but again this should (**???**) be barely noticeable.
+AWS does charge for data egress (i.e. data being sent from your server to clients), but again this should (**???**) be barely noticeable. Turning down the server tick rate could help this.
 
 ## Help / Support
 
@@ -161,6 +196,10 @@ If you SSH onto the server, you can run the following commands for debugging pur
 * `sudo docker logs $(docker ps -q --filter ancestor=wolveix/satisfactory-server)` - Check the container logs.
 
 DO NOT restart the docker container via SSH. This will cause ECS to lose track of the container, and effectively kill the restarted container and create a new one. Refer to Restarting the Container above for the right method.
+
+### DNS doesn't get set on initial stack creation
+
+There's usually some kind of race condition where the Instance Launch Successful event happens before the Lambda is created. Turn the stack off and on again. Or
 
 ## Thanks
 

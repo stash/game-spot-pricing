@@ -97,6 +97,31 @@ Parameters:
     Description: "Leave blank for automatic, otherwires pick the 2nd-lowest spot price zone. Note that the instance type you picked above must be present in both zones. (AZTwo)"
     Default: ""
 
+  CronTimezone:
+    Type: String
+    Description: IANA Timezone string, used for the schedule below. Use "Etc/UTC" for UTC, "America/Vancouver" for PST/PDT, etc. -- see https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+    Default: "America/Vancouver"
+
+  CronWeekdayStart:
+    Type: String
+    Description: "Crontab statement for weekdays to START the server, blank disables this feature. E.g. '30 16 * * 1-5' will schedule a 4:30PM Mon-Fri start. All crontab statements are independent; you can have stops without starts, etc. Setting server to 'Stopped' and/or 'Unclaimed' disables these schedules."
+    Default: ""
+
+  CronWeekdayStop:
+    Type: String
+    Description: "Crontab statement for weekdays to STOP the server, blank disables this feature. E.g. '15 0 * * 1-5' will schedule a 12:15AM Mon-Fri stop."
+    Default: ""
+
+  CronWeekendStart:
+    Type: String
+    Description: "Crontab statement for weekends to START the server, blank disables this feature. E.g. '0 10 * * 6-7' will schedule a 10:00AM Sat & Sun start. Note Sundays is 0 _or_ 7."
+    Default: ""
+
+  CronWeekendStop:
+    Type: String
+    Description: "Crontab statement for weekends to STOP the server, blank disables this feature. E.g. '30 2 * * 6-7' will schedule a 2:30AM Sat-Sun stop (so you can play past midnight on Fri & Sat)."
+    Default: ""
+
   # ====================================================
   # SERVER CONFIG ENVs
   # ====================================================
@@ -213,6 +238,14 @@ Metadata:
           - YourIPv4
           - KeyPairName
       - Label:
+          default: Schedule
+        Parameters:
+          - CronTimezone
+          - CronWeekdayStart
+          - CronWeekdayStop
+          - CronWeekendStart
+          - CronWeekendStop
+      - Label:
           default: Server Settings
         Parameters:
           - DebugMode
@@ -274,6 +307,17 @@ Metadata:
         default: "Container Port"
       VpcCidrBlock:
         default: "VPC Network Range"
+      # Schedule
+      CronTimezone:
+        default: "Timezone (TZ identifier)"
+      CronWeekdayStart:
+        default: "Weekday Start Schedule"
+      CronWeekdayStop:
+        default: "Weekday Stop Schedule"
+      CronWeekendStart:
+        default: "Weekend Start Schedule"
+      CronWeekendStop:
+        default: "Weekend Stop Schedule"
       # Env vars
       DebugMode:
         default: "Debug the Server"
@@ -324,6 +368,30 @@ Conditions:
       !Condition KeyPairNameProvided,
     ]
   UnclaimedV4: !And [!Condition IPv4AddressProvided, !Condition IsUnclaimed]
+  CronWeekdayStartProvided:
+    !And [
+      !Not [!Equals [!Ref CronWeekdayStart, ""]],
+      !Equals [!Ref ServerState, "Running"],
+      !Condition IsClaimed,
+    ]
+  CronWeekdayStopProvided:
+    !And [
+      !Not [!Equals [!Ref CronWeekdayStop, ""]],
+      !Equals [!Ref ServerState, "Running"],
+      !Condition IsClaimed,
+    ]
+  CronWeekendStartProvided:
+    !And [
+      !Not [!Equals [!Ref CronWeekendStart, ""]],
+      !Equals [!Ref ServerState, "Running"],
+      !Condition IsClaimed,
+    ]
+  CronWeekendStopProvided:
+    !And [
+      !Not [!Equals [!Ref CronWeekendStop, ""]],
+      !Equals [!Ref ServerState, "Running"],
+      !Condition IsClaimed,
+    ]
 
 Mappings:
   ServerState:
@@ -618,6 +686,54 @@ Resources:
               Value: !Sub "${SteamBeta}"
             - Name: TIMEOUT
               Value: !Sub "${ClientTimeout}"
+
+  # ====================================================
+  # SCHEDULING
+  # ====================================================
+
+  AsgScalingWeekdayStart:
+    Type: AWS::AutoScaling::ScheduledAction
+    Condition: CronWeekdayStartProvided
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      Recurrence: !Ref CronWeekdayStart
+      MinSize: 1
+      MaxSize: 1
+      DesiredCapacity: 1
+      TimeZone: !Ref CronTimezone
+
+  AsgScalingWeekdayStop:
+    Type: AWS::AutoScaling::ScheduledAction
+    Condition: CronWeekdayStopProvided
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      MinSize: 0
+      MaxSize: 0
+      DesiredCapacity: 0
+      Recurrence: !Ref CronWeekdayStop
+      TimeZone: !Ref CronTimezone
+
+  AsgScalingWeekendStart:
+    Type: AWS::AutoScaling::ScheduledAction
+    Condition: CronWeekendStartProvided
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      MinSize: 1
+      MaxSize: 1
+      DesiredCapacity: 1
+      Recurrence: !Ref CronWeekendStart
+      TimeZone: !Ref CronTimezone
+
+  AsgScalingWeekendStop:
+    Type: AWS::AutoScaling::ScheduledAction
+    Condition: CronWeekendStopProvided
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      MinSize: 0
+      MaxSize: 0
+      DesiredCapacity: 0
+      Recurrence: !Ref CronWeekendStop
+      TimeZone: !Ref CronTimezone
 
   # ====================================================
   # SET DNS RECORD
