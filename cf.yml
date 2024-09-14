@@ -42,10 +42,13 @@ Parameters:
     Description: "Instance type change at your discretion, will have a direct impact on cost -- see https://aws.amazon.com/ec2/instance-types/ . Graviton is not supported"
     Default: t3.xlarge
 
-  SpotPrice:
+  PriceMode:
     Type: String
-    Description: "Maximum spot pricing. Will not launch if current price exceeds this. Check pricing history via https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances-history.html -- NOTE: Leave this blank to use on-demand pricing. ($/hr)"
-    Default: "0.08"
+    Description: "Choose between spot pricing or regular on-demand. Spot instances can be interrupted; on-demand pays a premium to avoid interruptions. See the Readme and https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances-history.html"
+    Default: "Spot"
+    AllowedValues:
+      - "Spot"
+      - "On-Demand"
 
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
@@ -229,7 +232,7 @@ Metadata:
           - AZOne
           - AZTwo
           - MemoryReservationECS
-          - SpotPrice
+          - PriceMode
           - ServerPort
       - Label:
           default: Access Control
@@ -285,8 +288,8 @@ Metadata:
         default: "SERVER STATE - Update this to stop/start!"
       InstanceType:
         default: "EC2 Instance type"
-      SpotPrice:
-        default: "Spot Price Limit"
+      PriceMode:
+        default: "Use Spot Instance?"
       AZOne:
         default: "First Availability Zone"
       AZTwo:
@@ -358,7 +361,7 @@ Conditions:
   MaxTickRateProvided: !Not [!Equals [!Ref MaxTickRate, 0]]
   PUserIdProvided: !Not [!Equals [!Ref PUserId, 0]]
   PGroupIdProvided: !Not [!Equals [!Ref PGroupId, 0]]
-  SpotPriceProvided: !Not [!Equals [!Ref SpotPrice, ""]]
+  UseSpot: !Equals [!Ref PriceMode, "Spot"]
   IsUnclaimed: !Equals [!Ref ServerClaimed, "Unclaimed"]
   IsClaimed: !Equals [!Ref ServerClaimed, "Claimed"]
   SSHv4:
@@ -555,21 +558,42 @@ Resources:
           - !Ref "AWS::NoValue"
       VpcId: !Ref Vpc
 
-  LaunchConfiguration:
-    Type: AWS::AutoScaling::LaunchConfiguration
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
     Properties:
-      AssociatePublicIpAddress: true
-      IamInstanceProfile: !Ref InstanceProfile
-      ImageId: !Ref ECSAMI
-      InstanceType: !Ref InstanceType
-      KeyName: !If [KeyPairNameProvided, !Ref KeyPairName, !Ref "AWS::NoValue"]
-      SecurityGroups:
-        - !Ref Ec2Sg
-      SpotPrice: !If [SpotPriceProvided, !Ref SpotPrice, !Ref "AWS::NoValue"]
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash -xe
-          echo ECS_CLUSTER=${EcsCluster} >> /etc/ecs/ecs.config
+      LaunchTemplateName: !Sub "${AWS::StackName}-launch-template"
+      VersionDescription: !Sub "Launch template for ${AWS::StackName} ASG"
+      LaunchTemplateData:
+        CreditSpecification:
+          # TODO: this is only for `t*` instances - maybe errors for other kinds?
+          CpuCredits: standard
+        IamInstanceProfile:
+          Name: !Ref InstanceProfile
+        ImageId: !Ref ECSAMI
+        InstanceInitiatedShutdownBehavior: terminate
+        InstanceType: !Ref InstanceType
+        InstanceMarketOptions: !If
+          - UseSpot
+          - MarketType: spot
+            SpotOptions:
+              # Note: MaxPrice is not set, since omitting it gives more stability.
+              # The "one-time" is required for ASG usage:
+              SpotInstanceType: one-time
+          - !Ref "AWS::NoValue"
+        KeyName:
+          !If [KeyPairNameProvided, !Ref KeyPairName, !Ref "AWS::NoValue"]
+        Monitoring:
+          # TODO: is this really needed?
+          Enabled: true
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            AssociatePublicIpAddress: true
+            Groups: [!Ref Ec2Sg]
+            DeleteOnTermination: true
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash -xe
+            echo ECS_CLUSTER=${EcsCluster} >> /etc/ecs/ecs.config
 
   AutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -577,7 +601,9 @@ Resources:
       AutoScalingGroupName: !Sub "${AWS::StackName}-asg"
       DesiredCapacity:
         !FindInMap [ServerState, !Ref ServerState, DesiredCapacity]
-      LaunchConfigurationName: !Ref LaunchConfiguration
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
       MaxSize: !FindInMap [ServerState, !Ref ServerState, DesiredCapacity]
       MinSize: !FindInMap [ServerState, !Ref ServerState, DesiredCapacity]
       VPCZoneIdentifier:
