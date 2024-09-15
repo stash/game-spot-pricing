@@ -125,6 +125,11 @@ Parameters:
     Description: "Crontab statement for weekends to STOP the server, blank disables this feature. E.g. '30 2 * * 6-7' will schedule a 2:30AM Sat-Sun stop (so you can play past midnight on Fri & Sat)."
     Default: ""
 
+  HealthCheckCmd:
+    Type: String
+    Description: "(advanced) Command to register as health check for the ECS task. Probably you can set this to '/healthcheck.sh' (/ is important) to activate. Set to empty to disable, especially if it's giving you trouble"
+    Default: "/healthcheck.sh"
+
   # ====================================================
   # SERVER CONFIG ENVs
   # ====================================================
@@ -275,6 +280,7 @@ Metadata:
           - ContainerPort
           - VolumeMountPoint
           - VpcCidrBlock
+          - HealthCheckCmd
     ParameterLabels:
       ECSAMI:
         default: "ECS AMI"
@@ -310,6 +316,8 @@ Metadata:
         default: "Container Port"
       VpcCidrBlock:
         default: "VPC Network Range"
+      HealthCheckCmd:
+        default: "Health Check Command"
       # Schedule
       CronTimezone:
         default: "Timezone (TZ identifier)"
@@ -395,6 +403,7 @@ Conditions:
       !Equals [!Ref ServerState, "Running"],
       !Condition IsClaimed,
     ]
+  HasHealthCheck: !Not [!Equals [!Ref HealthCheckCmd, ""]]
 
 Mappings:
   ServerState:
@@ -662,6 +671,14 @@ Resources:
         - Name: game
           MemoryReservation: !Ref MemoryReservationECS
           Image: !Sub "${GameImage}:${GameImageTag}"
+          HealthCheck: !If
+            - HasHealthCheck
+            - Command: ["/bin/bash", !Ref HealthCheckCmd]
+              Interval: 60
+              Retries: 3
+              Timeout: 10
+              StartPeriod: 300
+            - !Ref "AWS::NoValue"
           PortMappings:
             - ContainerPort: !Ref ContainerPort
               HostPort: !Ref ServerPort

@@ -45,10 +45,10 @@ A few notes on the services we're using...
 1. Wait until CF completes again.
 
 ## Next Steps
-    
+
 Remember: **Claim the server and set a password _before_ you change the Claimed parameter in CloudFormation!!**
 
-All things going well, your Satisfactory server should be running in five to fifteen minutes or so. Wait until CloudFormation reports the stack status as `CREATE_COMPLETE`. Go to the [EC2 dashboard in the AWS console](https://console.aws.amazon.com/ec2/v2/home?#Instances:sort=instanceId) and you should see a Satisfactory server running. Take note of the public IP address. You should be able to fire up Satisfactory, and join via this IP address. No need to provide a port number, we're using Satisfactory's default. 
+All things going well, your Satisfactory server should be running in five to fifteen minutes or so. Wait until CloudFormation reports the stack status as `CREATE_COMPLETE`. Go to the [EC2 dashboard in the AWS console](https://console.aws.amazon.com/ec2/v2/home?#Instances:sort=instanceId) and you should see a Satisfactory server running. Take note of the public IP address. You should be able to fire up Satisfactory, and join via this IP address. No need to provide a port number, we're using Satisfactory's default.
 
 Note that until you set the server to Claimed in CF, only your own IP address can access the server.
 
@@ -93,45 +93,49 @@ To override a schedule, e.g., for a holiday or marathon or something:
 
 Note that any edits here will probably get overridden if you change the Stopped/Running server state in CloudFormation. For permanent schedule changes, be sure to just change it in CF.
 
+### Health Checks
+
+You can enable ECS container restarts by specifying a healthcheck command, which is a script that will be executed by `/bin/bash` inside the container. Recommend setting this to the built-in `/healthcheck.sh` unless you want to override that.
+
 ## FAQ
 
-**Do I need a VPC, or Subnets, or other networking config in AWS?** 
+**Do I need a VPC, or Subnets, or other networking config in AWS?**
 
 Nope. The stack creates everything you need.
 
-**What if my server is terminated due to my Spot Request being outbid?** 
+**What if my server is terminated due to my Spot Request being outbid?**
 
 Everything is stored on EFS, so don't worry you won't lose anything (well, that's partially true - you might lose up to N minutes of gameplay depending on when the server last saved). There is every chance your instance will come back in a few minutes. If not you can either select a different instance type, increase your spot price, or completely disable spot pricing and revert to on demand pricing. All of these options can be performed by updating your CloudFormation stack parameters.
 
-**My server keeps getting terminated. I don't like Spot Pricing. Take me back to the good old days.** 
+**My server keeps getting terminated. I don't like Spot Pricing. Take me back to the good old days.**
 
 That's fine; update your CloudFormation stack and set the SpotPrice parameter to an empty value. Voila, you'll now be using On Demand pricing (and paying significantly more).
 
-**How do I change my instance type?** 
+**How do I change my instance type?**
 
 Update your CloudFormation stack. Enter a different instance type.
 
-**How do I change my spot price limit?** 
+**How do I change my spot price limit?**
 
-Update your CloudFormation stack. Enter a different limit. 
+Update your CloudFormation stack. Enter a different limit.
 
-**I'm done for the night / week / month / year. How do I turn off my server?** 
+**I'm done for the night / week / month / year. How do I turn off my server?**
 
 Update your CloudFormation stack. Change the server state parameter from "Running" to "Stopped".
 
 Or, set up an automatic schedule so you can actually get to bed on time.
 
-**I'm done with Satisfactory, how do I delete this server?** 
+**I'm done with Satisfactory, how do I delete this server?**
 
 Delete the CloudFormation stack.  Except for the EFS, Done.  The EFS is retained when the CloudFormation stack is deleted to preserve your saves, but can then be manually deleted via the AWS console.
 
-**How can I upgrade the Satisfactory version?** 
+**How can I upgrade the Satisfactory version?**
 
 Every time the server starts, unless you've set "Skip Upgrades", it will download the latest version.
 
 Use the "Use Beta/Experimental" setting (`SteamBeta`) to use pre-releases.
 
-**I can no longer connect to my instance via SSH?** 
+**I can no longer connect to my instance via SSH?**
 
 Your public IP address has probably changed. [Check your public IP address]((https://whatismyipaddress.com/)) and update the stack, providing your new public IP address.
 
@@ -140,11 +144,11 @@ Your public IP address has probably changed. [Check your public IP address]((htt
 That sucks! Fortunately: the ECS task & VPC settings should protect you from major damage, and we've made a best effort to minimize the permissions required, but it's entirely possible we missed something. **You're responsible for reviewing the entire CloudFormation template for shenannigans; it's not my problem and you're doing this at your own risk.**
 
 Some ideas:
-* Before you shut down the server, see if any of your infosec / blue-team friends can take a snapshot of the EC2 instance and do forensics. 
+* Before you shut down the server, see if any of your infosec / blue-team friends can take a snapshot of the EC2 instance and do forensics.
   * We could help Coffee Stain / Unreal if it's in their code!
   * Check the `/config` volume for malicious scripts or binaries, since that's the only volume that persists between reboots.
   * It's probably a mod, or serialization. Or weak passwords.
-* I'd advise restoring from a known-good save (AWS Backup can help you manage point-in-time backups, for a price). 
+* I'd advise restoring from a known-good save (AWS Backup can help you manage point-in-time backups, for a price).
   * You could try copy `/config/saved` to a new EFS volume and try to start fresh with a new CloudFormation stack.
 * If it's a concern to you, rotate your *PUBLIC* SSH key that you uploaded to AWS; the hacker might have scooped up a copy and could spoof an SSH server.
   * The AWS Systems Manager provides a good alternative to SSH, so you could experiment with using that.
