@@ -42,6 +42,15 @@ Parameters:
     Description: "Instance type change at your discretion, will have a direct impact on cost -- see https://aws.amazon.com/ec2/instance-types/ . Graviton is not supported"
     Default: t3.xlarge
 
+  CreditMode:
+    Type: String
+    Description: "SET TO 'n/a' IF NOT USING t2/t3/t4 ABOVE. CPU-credit mode to use for T instances: 'unlimited' can incur extra costs per vCPU/hr (especially at boot), so recommend 'standard' for cost-savings. Set to 'n/a' for non-T instance types."
+    Default: "standard"
+    AllowedValues:
+      - "standard"
+      - "unlimited"
+      - "n/a"
+
   PriceMode:
     Type: String
     Description: "Choose between spot pricing or regular on-demand. Spot instances can be interrupted; on-demand pays a premium to avoid interruptions. See the Readme and https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances-history.html"
@@ -234,10 +243,11 @@ Metadata:
           - GameImage
           - GameImageTag
           - InstanceType
+          - CreditMode
+          - PriceMode
           - AZOne
           - AZTwo
           - MemoryReservationECS
-          - PriceMode
           - ServerPort
       - Label:
           default: Access Control
@@ -296,6 +306,8 @@ Metadata:
         default: "EC2 Instance type"
       PriceMode:
         default: "Use Spot Instance?"
+      CreditMode:
+        default: "CPU Credit Mode"
       AZOne:
         default: "First Availability Zone"
       AZTwo:
@@ -370,6 +382,7 @@ Conditions:
   PUserIdProvided: !Not [!Equals [!Ref PUserId, 0]]
   PGroupIdProvided: !Not [!Equals [!Ref PGroupId, 0]]
   UseSpot: !Equals [!Ref PriceMode, "Spot"]
+  HasCreditMode: !Not [!Equals [!Ref CreditMode, "n/a"]]
   IsUnclaimed: !Equals [!Ref ServerClaimed, "Unclaimed"]
   IsClaimed: !Equals [!Ref ServerClaimed, "Claimed"]
   SSHv4:
@@ -573,9 +586,10 @@ Resources:
       LaunchTemplateName: !Sub "${AWS::StackName}-launch-template"
       VersionDescription: !Sub "Launch template for ${AWS::StackName} ASG"
       LaunchTemplateData:
-        CreditSpecification:
-          # TODO: this is only for `t*` instances - maybe errors for other kinds?
-          CpuCredits: standard
+        CreditSpecification: !If
+          - HasCreditMode
+          - CpuCredits: !Ref CreditMode
+          - !Ref "AWS::NoValue"
         IamInstanceProfile:
           Name: !Ref InstanceProfile
         ImageId: !Ref ECSAMI
