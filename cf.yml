@@ -81,7 +81,7 @@ Parameters:
 
   VpcCidrBlock:
     Type: String
-    Description: "VPC Address Range, CIDR notation (/26 recommended, VPC subnets will be /28 regardless) - for sanity, don't overlap this with other VPCs!"
+    Description: "VPC Address Range, CIDR notation (/26 recommended, the four VPC subnets will be /28 each) - for sanity, don't overlap this with other VPCs!"
     Default: "10.100.1.0/26"
 
   VolumeMountPoint:
@@ -101,12 +101,20 @@ Parameters:
 
   AZOne:
     Type: AWS::EC2::AvailabilityZone::Name
-    Description: "Leave blank for automatic, otherwise pick the lowest spot price zone. Note that the instance type you picked above must be present in both zones. (AZOne)"
-    Default: ""
+    Description: "Pick the lowest spot price zone, or just 'a'. Note that the instance type you picked above must be present in both zones. You may need to manually delete the Subnet to change this later (AZOne)"
 
   AZTwo:
     Type: AWS::EC2::AvailabilityZone::Name
-    Description: "Leave blank for automatic, otherwires pick the 2nd-lowest spot price zone. Note that the instance type you picked above must be present in both zones. (AZTwo)"
+    Description: "Pick the 2nd-lowest spot price zone, or just 'b'. Note that the instance type you picked above must be present in both zones. You may need to manually delete the Subnet to change this later (AZTwo)"
+
+  AZThree:
+    Type: String
+    Description: "Optional third AZ. Leave blank to disable, otherwise write in one of the other zones from the picker above. (AZThree)"
+    Default: ""
+
+  AZFour:
+    Type: String
+    Description: "Optional fourth AZ. Leave blank to disable, otherwise write in one of the other zones from the picker above. (AZFour)"
     Default: ""
 
   CronTimezone:
@@ -247,6 +255,8 @@ Metadata:
           - PriceMode
           - AZOne
           - AZTwo
+          - AZThree
+          - AZFour
           - MemoryReservationECS
           - ServerPort
       - Label:
@@ -312,6 +322,10 @@ Metadata:
         default: "First Availability Zone"
       AZTwo:
         default: "Second Availability Zone"
+      AZThree:
+        default: "Optional Third Availability Zone"
+      AZFour:
+        default: "Optional Fourth Availability Zone"
       KeyPairName:
         default: "SSH Keypair Name"
       YourIPv4:
@@ -370,8 +384,8 @@ Metadata:
 Conditions:
   KeyPairNameProvided: !Not [!Equals [!Ref KeyPairName, ""]]
   IPv4AddressProvided: !Not [!Equals [!Ref YourIPv4, ""]]
-  AZOneProvided: !Not [!Equals [!Ref AZOne, ""]]
-  AZTwoProvided: !Not [!Equals [!Ref AZTwo, ""]]
+  AZThreeProvided: !Not [!Equals [!Ref AZThree, ""]]
+  AZFourProvided: !Not [!Equals [!Ref AZFour, ""]]
   DnsConfigEnabled:
     !And [
       !Not [!Equals [!Ref HostedZoneId, ""]],
@@ -440,12 +454,31 @@ Resources:
   SubnetA:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: !If
-        - AZOneProvided
-        - !Ref AZOne
-        # 1 = the "b" zone, usually
-        - !Select [1, !GetAZs { Ref: "AWS::Region" }]
+      AvailabilityZone: !Ref AZOne
       CidrBlock: !Select [0, !Cidr [!Ref VpcCidrBlock, 4, 4]]
+      VpcId: !Ref Vpc
+
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AZTwo
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidrBlock, 4, 4]]
+      VpcId: !Ref Vpc
+
+  SubnetC:
+    Type: AWS::EC2::Subnet
+    Condition: AZThreeProvided
+    Properties:
+      AvailabilityZone: !Ref AZThree
+      CidrBlock: !Select [2, !Cidr [!Ref VpcCidrBlock, 4, 4]]
+      VpcId: !Ref Vpc
+
+  SubnetD:
+    Type: AWS::EC2::Subnet
+    Condition: AZFourProvided
+    Properties:
+      AvailabilityZone: !Ref AZFour
+      CidrBlock: !Select [3, !Cidr [!Ref VpcCidrBlock, 4, 4]]
       VpcId: !Ref Vpc
 
   SubnetARoute:
@@ -460,16 +493,19 @@ Resources:
       RouteTableId: !Ref RouteTable
       SubnetId: !Ref SubnetB
 
-  SubnetB:
-    Type: AWS::EC2::Subnet
+  SubnetCRoute:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: AZThreeProvided
     Properties:
-      AvailabilityZone: !If
-        - AZTwoProvided
-        - !Ref AZTwo
-        # 2 = the "c" zone, usually
-        - !Select [2, !GetAZs { Ref: "AWS::Region" }]
-      CidrBlock: !Select [1, !Cidr [!Ref VpcCidrBlock, 4, 4]]
-      VpcId: !Ref Vpc
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetC
+
+  SubnetDRoute:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: AZFourProvided
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetD
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
@@ -520,6 +556,24 @@ Resources:
       SecurityGroups:
         - !Ref EfsSg
       SubnetId: !Ref SubnetB
+
+  MountC:
+    Type: AWS::EFS::MountTarget
+    Condition: AZThreeProvided
+    Properties:
+      FileSystemId: !Ref Efs
+      SecurityGroups:
+        - !Ref EfsSg
+      SubnetId: !Ref SubnetC
+
+  MountD:
+    Type: AWS::EFS::MountTarget
+    Condition: AZFourProvided
+    Properties:
+      FileSystemId: !Ref Efs
+      SecurityGroups:
+        - !Ref EfsSg
+      SubnetId: !Ref SubnetD
 
   EfsSg:
     Type: AWS::EC2::SecurityGroup
@@ -632,6 +686,8 @@ Resources:
       VPCZoneIdentifier:
         - !Ref SubnetA
         - !Ref SubnetB
+        - !If [AZThreeProvided, !Ref SubnetC, !Ref "AWS::NoValue"]
+        - !If [AZFourProvided, !Ref SubnetD, !Ref "AWS::NoValue"]
 
   InstanceRole:
     Type: AWS::IAM::Role
@@ -675,6 +731,9 @@ Resources:
     DependsOn:
       - MountA
       - MountB
+      # Can't put MountC and MountD here because they're conditional :(
+      # Hopefully A & B are enough!
+      # TODO: hack with a Fn::Sub into an env var??
     Properties:
       Volumes:
         - Name: gamedata
